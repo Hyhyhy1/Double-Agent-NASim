@@ -2,6 +2,8 @@ import numpy as np
 
 from nasim.envs.utils import AccessLevel
 from nasim.envs.host_vector import HostVector
+from nasim.envs.explorer_host_vector import ExplorerHostVector
+from nasim.envs.attacker_host_vector import AttackerHostVector
 
 
 class Observation:

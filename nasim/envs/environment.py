@@ -227,20 +227,6 @@ class NASimEnv(gym.Env):
         reward = action_obs.value - action.cost
         return next_state, obs, reward, done, action_obs.info()
 
-    def generate_random_initial_state(self):
-        """Generates a random initial state for environment.
-
-        This only randomizes the host configurations (os, services)
-        using a uniform distribution, so may result in networks where
-        it is not possible to reach the goal.
-
-        Returns
-        -------
-        State
-            A random initial state
-        """
-        return State.generate_random_initial_state(self.network)
-
     def generate_initial_state(self):
         """Generate the initial state for the environment.
 

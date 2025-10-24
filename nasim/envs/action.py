@@ -101,11 +101,9 @@ def load_explorer_action_list(scenario):
             SubnetScan(address, scenario.subnet_scan_cost)
         )
         action_list.append(
-            ProcessScan(address, scenario.process_scan_cost)
-        )
-        action_list.append(
             AttackHost(address)
         )
+    return action_list
 
 
 def load_attacker_action_list(scenario, address):
@@ -122,12 +120,28 @@ def load_attacker_action_list(scenario, address):
         list of all attacker actions in environment
     """   
     action_list = []
+
+    action_list.append(
+            OSScan(address, scenario.os_scan_cost)
+        )
+    action_list.append(
+            ServiceScan(address, scenario.service_scan_cost)
+        )
+    action_list.append(
+            ProcessScan(address, scenario.process_scan_cost)
+        )
+
     for e_name, e_def in scenario.exploits.items():
         exploit = Exploit(e_name, address, **e_def)
         action_list.append(exploit)
+
     for pe_name, pe_def in scenario.privescs.items():
         privesc = PrivilegeEscalation(pe_name, address, **pe_def)
         action_list.append(privesc)
+
+    action_list.append(
+        StopAttack(address)
+    )
     return action_list
 
 
@@ -275,7 +289,7 @@ class Action:
         """
         return isinstance(self, ProcessScan)
     
-    def is_attack_host(self):
+    def is_host_attack(self):
         """Check if action is a host attack
 
         Returns
@@ -284,6 +298,16 @@ class Action:
             True if action is a host attack, otherwise False
         """
         return isinstance(self, AttackHost)
+    
+    def is_stop_attack(self):
+        """Check if action is a stop attack
+
+        Returns
+        -------
+        bool
+            True if action is a stop attack, otherwise False
+        """
+        return isinstance(self, StopAttack)
 
     def is_noop(self):
         """Check if action is a do nothing action.
@@ -597,7 +621,7 @@ class AttackHost(Action):
 
     def __init__(self,
                  target,
-                 cost,
+                 cost=0.0,
                  prob=1.0,
                  req_access=AccessLevel.USER,
                  **kwargs):
@@ -621,6 +645,38 @@ class AttackHost(Action):
                          req_access=req_access,
                          **kwargs)
 
+
+class StopAttack(Action):
+    """Attacker agent action, that stops current attack
+
+    Inherits from the base Action Class.
+    """
+    def __init__(self, 
+                 target, 
+                 cost=0.0, 
+                 prob=1.0, 
+                 req_access=AccessLevel.USER, 
+                 **kwargs):
+        """
+        Parameters
+        ---------
+        target : (int, int)
+            address of target
+        cost : float
+            cost of performing action
+        prob : float, optional
+            probability of success for a given action (default=1.0)
+        req_access : AccessLevel, optional
+            the required access level to perform action
+            (default=AccessLevel.USER)
+        """
+        super().__init__("stop_attack", 
+                         target=target, 
+                         cost=cost, 
+                         prob=prob, 
+                         req_access=req_access, 
+                         **kwargs)
+    pass
 
 class NoOp(Action):
     """A do nothing action in the environment

@@ -1,6 +1,8 @@
 import numpy as np
 
 from nasim.envs.host_vector import HostVector
+from nasim.envs.explorer_host_vector import ExplorerHostVector
+from nasim.envs.attacker_host_vector import AttackerHostVector
 from nasim.envs.observation import Observation
 
 
@@ -22,6 +24,8 @@ class State:
         to map host address to host row in the network tensor)
     """
 
+    _active_agent = None
+
     def __init__(self, network_tensor, host_num_map):
         """
         Parameters
@@ -36,43 +40,51 @@ class State:
         self.host_num_map = host_num_map
 
     @classmethod
-    def tensorize(cls, network):
-        h0 = network.hosts[(1, 0)]
-        h0_vector = HostVector.vectorize(h0, network.address_space_bounds)
-        tensor = np.zeros(
-            (len(network.hosts), h0_vector.state_size),
-            dtype=np.float32
-        )
-        for host_addr, host in network.hosts.items():
-            host_num = network.host_num_map[host_addr]
-            HostVector.vectorize(
-                host, network.address_space_bounds, tensor[host_num]
+    def tensorize(cls, network, active_agent=None, target = (1, 0)):
+        cls._active_agent = active_agent
+
+        if cls._active_agent is None:
+            h0 = network.hosts[(1, 0)]
+            h0_vector = HostVector.vectorize(h0, network.address_space_bounds)
+            tensor = np.zeros(
+                (len(network.hosts), h0_vector.state_size),
+                dtype=np.float32
             )
+            for host_addr, host in network.hosts.items():
+                host_num = network.host_num_map[host_addr]
+                HostVector.vectorize(
+                    host, network.address_space_bounds, tensor[host_num]
+                )
+        
+        elif cls._active_agent == "Explorer":
+            h0 = network.hosts[(1, 0)]
+            h0_vector = ExplorerHostVector.vectorize(h0, network.address_space_bounds)
+            tensor = np.zeros(
+                (len(network.hosts), h0_vector.state_size),
+                dtype=np.float32
+            )
+            for host_addr, host in network.hosts.items():
+                host_num = network.host_num_map[host_addr]
+                ExplorerHostVector.vectorize(
+                    host, network.address_space_bounds, tensor[host_num]
+                )
+        
+        elif cls._active_agent == "Attacker":
+            h0 = network.hosts[target]
+            h0_vector = AttackerHostVector.vectorize(h0)
+            tensor = np.zeros(
+                (1, h0_vector.state_size),
+                dtype=np.float32
+            )
+            AttackerHostVector.vectorize(h0, tensor[0])
+
+          
         return cls(tensor, network.host_num_map)
 
     @classmethod
-    def generate_initial_state(cls, network):
+    def generate_initial_state(cls, network, active_agent=None, target = (1, 0)):
         cls.reset()
-        state = cls.tensorize(network)
-        return network.reset(state)
-
-    @classmethod
-    def generate_random_initial_state(cls, network):
-        h0 = network.hosts[(1, 0)]
-        h0_vector = HostVector.vectorize_random(
-            h0, network.address_space_bounds
-        )
-        tensor = np.zeros(
-            (len(network.hosts), h0_vector.state_size),
-            dtype=np.float32
-        )
-        for host_addr, host in network.hosts.items():
-            host_num = network.host_num_map[host_addr]
-            HostVector.vectorize_random(
-                host, network.address_space_bounds, tensor[host_num]
-            )
-        state = cls(tensor, network.host_num_map)
-        # ensure host state set correctly
+        state = cls.tensorize(network, active_agent, target)
         return network.reset(state)
 
     @classmethod
@@ -85,6 +97,8 @@ class State:
     def reset(cls):
         """Reset any class attributes for state """
         HostVector.reset()
+        ExplorerHostVector.reset()
+        AttackerHostVector.reset()
 
     @property
     def hosts(self):
@@ -217,14 +231,32 @@ class State:
 
     def get_host(self, host_addr):
         host_idx = self.host_num_map[host_addr]
-        return HostVector(self.tensor[host_idx])
+
+        if self._active_agent is None:
+            return HostVector(self.tensor[host_idx])
+        
+        elif self._active_agent == "Explorer":
+            return ExplorerHostVector(self.tensor[host_idx])
+        
+        elif self._active_agent == "Attacker":
+            return AttackerHostVector(self.tensor[0])
 
     def get_host_idx(self, host_addr):
         return self.host_num_map[host_addr]
 
     def get_host_and_idx(self, host_addr):
         host_idx = self.host_num_map[host_addr]
-        return host_idx, HostVector(self.tensor[host_idx])
+
+        if self._active_agent is None:
+            host = HostVector(self.tensor[host_idx])
+        
+        elif self._active_agent == "Explorer":
+            host = ExplorerHostVector(self.tensor[host_idx])
+        
+        elif self._active_agent == "Attacker":
+            host = AttackerHostVector(self.tensor[0])
+
+        return host_idx, host
 
     def host_reachable(self, host_addr):
         return self.get_host(host_addr).reachable

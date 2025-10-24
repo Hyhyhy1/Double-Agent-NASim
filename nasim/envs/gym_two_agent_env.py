@@ -6,7 +6,7 @@ from nasim.envs.state import State
 from nasim.envs.render import Viewer
 from nasim.envs.network import Network
 from nasim.envs.observation import Observation
-from nasim.envs.action import Action, ExplorerActionSpace, AttackerActionSpace
+from nasim.envs.action import Action, ExplorerActionSpace, AttackerActionSpace, FlatActionSpace, ActionResult
 
 
 class NASimGymTwoAgentsEnv(gym.Env):
@@ -22,12 +22,10 @@ class NASimGymTwoAgentsEnv(gym.Env):
         the environment scenario name
     scenario : Scenario
         Scenario object, defining the properties of the environment
-    action_space : FlatActionSpace or ParameterisedActionSpace
-        Action space for environment.
+    explorer_action_space : FlatActionSpace 
+        Explorer action space for environment.
     observation_space : gymnasium.spaces.Box
         observation space for environment.
-        If *flat_obs=True* then observations are represented by a 1D vector,
-        otherwise observations are represented as a 2D matrix.
     current_state : State
         the current state of the environment
     last_obs : Observation
@@ -44,45 +42,38 @@ class NASimGymTwoAgentsEnv(gym.Env):
     explorer_action_space = None
     attacker_action_space = None
     observation_space = None
-    current_state = None
+    current_explorer_state = None
+    current_attacker_state = None
     last_obs = None
+    current_agent = None
+    attack_cumulative_sum = None
 
     def __init__(self,
                  scenario,
-                 fully_obs=False,
-                 flat_obs=True,
                  render_mode=None):
         """
         Parameters
         ----------
         scenario : Scenario
             Scenario object, defining the properties of the environment
-        fully_obs : bool, optional
-            The observability mode of environment, if True then uses fully
-            observable mode, otherwise is partially observable (default=False)
-        flat_obs : bool, optional
-            If true then uses a 1D observation space, otherwise uses a 2D
-            observation space (default=True)
         render_mode : str, optional
             The render mode to use for the environment.
         """
         self.name = scenario.name
         self.scenario = scenario
-        self.fully_obs = fully_obs
-        self.flat_obs = flat_obs
         self.render_mode = render_mode
+        self.current_agent = "Explorer"
 
         self.network = Network(scenario)
-        self.current_state = State.generate_initial_state(self.network)
+        self.current_explorer_state = State.generate_initial_state(self.network, self.current_agent)
         self._renderer = None
         self.reset()
 
         self.explorer_action_space = ExplorerActionSpace(self.scenario)
+        self.attacker_action_space = AttackerActionSpace(scenario, (0,0))
 
-        if self.flat_obs:
-            obs_shape = self.last_obs.shape_flat()
-        else:
-            obs_shape = self.last_obs.shape()
+        obs_shape = self.last_obs.shape_flat()
+
         obs_low, obs_high = Observation.get_space_bounds(self.scenario)
         self.observation_space = spaces.Box(
             low=obs_low, high=obs_high, shape=obs_shape
@@ -106,20 +97,18 @@ class NASimGymTwoAgentsEnv(gym.Env):
         -------
         numpy.Array
             the initial observation of the environment
-        dict
+        dict  
             auxiliary information regarding reset
         """
         super().reset(seed=seed, options=options)
         self.steps = 0
-        self.current_state = self.network.reset(self.current_state)
-        self.last_obs = self.current_state.get_initial_observation(
-            self.fully_obs
-        )
 
-        if self.flat_obs:
-            obs = self.last_obs.numpy_flat()
-        else:
-            obs = self.last_obs.numpy()
+        self.current_explorer_state = self.network.reset(self.current_explorer_state)
+        self.current_agent = "Explorer"
+
+        self.last_obs = self.current_explorer_state.get_initial_observation(True)
+
+        obs = self.last_obs.numpy_flat()
 
         return obs, {}
 
@@ -150,17 +139,23 @@ class NASimGymTwoAgentsEnv(gym.Env):
             auxiliary information regarding step
             (see :func:`nasim.env.action.ActionResult.info`)
         """
-        next_state, obs, reward, done, info = self.generative_step(
-            self.current_state,
-            action
-        )
-        self.current_state = next_state
+        if self.current_agent == "Explorer":
+            next_state, obs, reward, done, info = self.explorer_step(
+                self.current_explorer_state,
+                action
+            )
+            self.current_explorer_state = next_state
+
+        elif self.current_agent == "Attacker":
+            next_state, obs, reward, done, info = self.attacker_step(
+                self.current_attacker_state,
+                action
+            )
+            self.current_attacker_state = next_state
+        
         self.last_obs = obs
 
-        if self.flat_obs:
-            obs = obs.numpy_flat()
-        else:
-            obs = obs.numpy()
+        obs = obs.numpy_flat()
 
         self.steps += 1
 
@@ -171,58 +166,51 @@ class NASimGymTwoAgentsEnv(gym.Env):
 
         return obs, reward, done, step_limit_reached, info
 
-    def generative_step(self, state, action):
-        """Run one step of the environment using action in given state.
 
-        Parameters
-        ----------
-        state : State
-            The state to perform the action in
-        action : Action, int, list, NumpyArray
-            Action to perform. If not Action object, then if using
-            flat actions this should be an int and if using non-flat actions
-            this should be an indexable array.
-
-        Returns
-        -------
-        State
-            the next state after action was performed
-        Observation
-            observation from performing action
-        float
-            reward from performing action
-        bool
-            whether a terminal state has been reached or not
-        dict
-            auxiliary information regarding step
-            (see :func:`nasim.env.action.ActionResult.info`)
-        """
+    def explorer_step(self, state, action):
         if not isinstance(action, Action):
-            action = self.action_space.get_action(action)
+            action = self.explorer_action_space.get_action(action)
+        
+        if action.is_host_attack():
+            self.current_agent = "Attacker"
+            self.current_attacker_state = State.tensorize(self.network, self.current_agent, action.target)
+            self.attacker_action_space = AttackerActionSpace(self.scenario, action.target)
 
         next_state, action_obs = self.network.perform_action(
-            state, action
+            state, action, self.current_agent
         )
+        done = self.goal_reached(next_state)
+        reward = action_obs.value - action.cost
+
+        if action.is_host_attack():
+            next_state = self.current_attacker_state
+
         obs = next_state.get_observation(
-            action, action_obs, self.fully_obs
+            action, action_obs, True
         )
+        
+        return next_state, obs, reward, done, action_obs.info()
+
+
+    def attacker_step(self, state, action):
+        if not isinstance(action, Action):
+            action = self.attacker_action_space.get_action(action)
+
+        if action.is_stop_attack():
+            self.current_agent = "Explorer"
+
+        next_state, action_obs = self.network.perform_action(
+            state, action, self.current_agent
+        )
+
+        obs = next_state.get_observation(
+            action, action_obs, True
+        )
+
         done = self.goal_reached(next_state)
         reward = action_obs.value - action.cost
         return next_state, obs, reward, done, action_obs.info()
 
-    def generate_random_initial_state(self):
-        """Generates a random initial state for environment.
-
-        This only randomizes the host configurations (os, services)
-        using a uniform distribution, so may result in networks where
-        it is not possible to reach the goal.
-
-        Returns
-        -------
-        State
-            A random initial state
-        """
-        return State.generate_random_initial_state(self.network)
 
     def generate_initial_state(self):
         """Generate the initial state for the environment.
@@ -272,7 +260,7 @@ class NASimGymTwoAgentsEnv(gym.Env):
             obs = self.last_obs
 
         if not isinstance(obs, Observation):
-            obs = Observation.from_numpy(obs, self.current_state.shape())
+            obs = Observation.from_numpy(obs, self.current_explorer_state.shape())
 
         if self._renderer is None:
             self._renderer = Viewer(self.network)
@@ -307,12 +295,12 @@ class NASimGymTwoAgentsEnv(gym.Env):
             return
 
         if state is None:
-            state = self.current_state
+            state = self.current_explorer_state
 
         if not isinstance(state, State):
             state = State.from_numpy(state,
-                                     self.current_state.shape(),
-                                     self.current_state.host_num_map)
+                                     self.current_explorer_state.shape(),
+                                     self.current_explorer_state.host_num_map)
 
         if self._renderer is None:
             self._renderer = Viewer(self.network)
@@ -375,7 +363,7 @@ class NASimGymTwoAgentsEnv(gym.Env):
         """
         if self._renderer is None:
             self._renderer = Viewer(self.network)
-        state = self.current_state
+        state = self.current_explorer_state
         self._renderer.render_graph(state, ax, show)
 
     def get_minimum_hops(self):
@@ -448,15 +436,13 @@ class NASimGymTwoAgentsEnv(gym.Env):
             True if state is goal state, otherwise False.
         """
         if state is None:
-            state = self.current_state
+            state = self.current_explorer_state
         return self.network.all_sensitive_hosts_compromised(state)
 
     def __str__(self):
         output = [
             "NASimEnv:",
             f"name={self.name}",
-            f"fully_obs={self.fully_obs}",
-            f"flat_obs={self.flat_obs}"
         ]
         return "\n  ".join(output)
 

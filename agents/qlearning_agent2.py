@@ -113,10 +113,10 @@ class TabularQLearningAgent:
         return self.final_epsilon
 
 
-    def get_egreedy_action(self, o):
+    def get_egreedy_action(self, obs):
         epsilon = self.get_epsilon()
         if random.random() > epsilon:
-            return self.qfunc.get_action(o)
+            return self.qfunc.get_action(obs)
         return random.randint(0, self.num_actions-1)
 
 

@@ -106,8 +106,7 @@ class HostVector:
             vector[cls._get_os_idx(os_num)] = int(os_val)
         for srv_num, (srv_key, srv_val) in enumerate(host.services.items()):
             vector[cls._get_service_idx(srv_num)] = int(srv_val)
-        host_procs = host.processes.items()
-        for proc_num, (proc_key, proc_val) in enumerate(host_procs):
+        for proc_num, (proc_key, proc_val) in enumerate(host.processes.items()):
             vector[cls._get_process_idx(proc_num)] = int(proc_val)
         return cls(vector)
 
