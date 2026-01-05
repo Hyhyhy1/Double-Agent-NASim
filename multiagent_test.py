@@ -86,10 +86,10 @@ if __name__ == "__main__":
     #env.render()
 
 
-    explorer_agent = TabularQLearningAgent(observation_space_shape=env.observation_space.shape, 
+    explorer_agent = TabularQLearningAgent(observation_space_shape=env.explorer_observation_space.shape, 
                     action_space_n=env.explorer_action_space.n)
     
-    attacker_agent = TabularQLearningAgent(observation_space_shape=env.observation_space.shape, 
+    attacker_agent = TabularQLearningAgent(observation_space_shape=env.attacker_observation_space.shape, 
                     action_space_n=env.attacker_action_space.n)
 
     _temp_action = None

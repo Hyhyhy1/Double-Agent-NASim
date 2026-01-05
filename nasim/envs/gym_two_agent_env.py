@@ -24,8 +24,6 @@ class NASimGymTwoAgentsEnv(gym.Env):
         Scenario object, defining the properties of the environment
     explorer_action_space : FlatActionSpace 
         Explorer action space for environment.
-    observation_space : gymnasium.spaces.Box
-        observation space for environment.
     current_state : State
         the current state of the environment
     last_obs : Observation
@@ -41,7 +39,7 @@ class NASimGymTwoAgentsEnv(gym.Env):
 
     explorer_action_space = None
     attacker_action_space = None
-    observation_space = None
+
     current_explorer_state = None
     current_attacker_state = None
     last_obs = None
@@ -65,17 +63,24 @@ class NASimGymTwoAgentsEnv(gym.Env):
         self.current_agent = "Explorer"
 
         self.network = Network(scenario)
-        self.current_explorer_state = State.generate_initial_state(self.network, self.current_agent)
+        self.current_attacker_state = State.generate_initial_state(self.network, "Attacker")
+        self.current_explorer_state = State.generate_initial_state(self.network, "Explorer")
+        self.last_attacker_obs = self.current_attacker_state.get_initial_observation()
         self._renderer = None
         self.reset()
 
         self.explorer_action_space = ExplorerActionSpace(self.scenario)
-        self.attacker_action_space = AttackerActionSpace(scenario, (0,0))
+        self.attacker_action_space = AttackerActionSpace(self.scenario, (0,0))
 
-        obs_shape = self.last_obs.shape_flat()
+        explorer_obs_shape = self.last_explorer_obs.shape_flat()
 
         obs_low, obs_high = Observation.get_space_bounds(self.scenario)
-        self.observation_space = spaces.Box(
+        
+        self.explorer_observation_space = spaces.Box(
+            low=obs_low, high=obs_high, shape=explorer_obs_shape
+        )
+
+        self.attacker_observation_space = spaces.Box(
             low=obs_low, high=obs_high, shape=obs_shape
         )
 
@@ -106,9 +111,12 @@ class NASimGymTwoAgentsEnv(gym.Env):
         self.current_explorer_state = self.network.reset(self.current_explorer_state)
         self.current_agent = "Explorer"
 
-        self.last_obs = self.current_explorer_state.get_initial_observation(True)
+        self.last_explorer_obs = self.current_explorer_state.get_initial_observation(True)
 
-        obs = self.last_obs.numpy_flat()
+        self.last_attacker_obs = None
+        self.last_attacker_obs = None
+
+        obs = self.last_explorer_obs.numpy_flat()
 
         return obs, {}
 
@@ -145,6 +153,7 @@ class NASimGymTwoAgentsEnv(gym.Env):
                 action
             )
             self.current_explorer_state = next_state
+            self.last_explorer_obs = obs
 
         elif self.current_agent == "Attacker":
             next_state, obs, reward, done, info = self.attacker_step(
@@ -152,8 +161,8 @@ class NASimGymTwoAgentsEnv(gym.Env):
                 action
             )
             self.current_attacker_state = next_state
+            self.last_attacker_obs = obs
         
-        self.last_obs = obs
 
         obs = obs.numpy_flat()
 
@@ -237,7 +246,11 @@ class NASimGymTwoAgentsEnv(gym.Env):
         """
         if self.render_mode is None:
             return
-        return self.render_obs(mode=self.render_mode, obs=self.last_obs)
+        
+        if self.current_agent == "Explorer":
+            return self.render_obs(mode=self.render_mode, obs=self.last_explorer_obs)
+        elif self.current_agent == "Attacker":
+            return self.render_obs(mode=self.render_mode, obs=self.last_attacker_obs)
 
     def render_obs(self, mode="human", obs=None):
         """Render observation.
@@ -257,7 +270,7 @@ class NASimGymTwoAgentsEnv(gym.Env):
             return
 
         if obs is None:
-            obs = self.last_obs
+            obs = obs=self.last_explorer_obs
 
         if not isinstance(obs, Observation):
             obs = Observation.from_numpy(obs, self.current_explorer_state.shape())
