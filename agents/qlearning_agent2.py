@@ -119,6 +119,8 @@ class TabularQLearningAgent:
             return self.qfunc.get_action(obs)
         return random.randint(0, self.num_actions-1)
 
+    def choose_action(self, obs):
+        return self.get_egreedy_action(obs)
 
     def optimize(self):
         batch = self.replay.sample_batch(self.batch_size)

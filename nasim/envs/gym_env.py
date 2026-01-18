@@ -1,5 +1,4 @@
 from nasim.envs.environment import NASimEnv
-from nasim.envs.gym_two_agent_env import NASimGymTwoAgentsEnv
 from nasim.scenarios import Scenario, make_benchmark_scenario
 
 
@@ -39,23 +38,4 @@ class NASimGymEnv(NASimEnv):
                          fully_obs=fully_obs,
                          flat_actions=flat_actions,
                          flat_obs=flat_obs,
-                         render_mode=render_mode)
-
-
-class NASimMultyAgent(NASimGymTwoAgentsEnv):
-     def __init__(self,
-                 scenario,
-                 render_mode=None):
-        """
-        Parameters
-        ----------
-        scenario : str or or nasim.scenarios.Scenario
-            either the name of benchmark environment (str) or a nasim Scenario
-            instance
-        render_mode : str, optional
-            The render mode to use for the environment.
-        """
-        if not isinstance(scenario, Scenario):
-            scenario = make_benchmark_scenario(scenario)
-        super().__init__(scenario,
                          render_mode=render_mode)

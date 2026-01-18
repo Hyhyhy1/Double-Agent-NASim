@@ -1,56 +1,64 @@
 import nasim
+import numpy as np
 import matplotlib.pyplot as plt
 from agents.qlearning_agent2 import TabularQLearningAgent
+from agents.modified_ddqn_agent import DoubleQAgent
 from statistics import fmean, stdev
+from nasim.scenarios import make_benchmark_scenario
+from nasim.envs.multiagent_env import NASimDAAEnv
 
-SCENARIO_NAME = "small"
+SCENARIO_NAME = "tiny"
+scenario = make_benchmark_scenario(SCENARIO_NAME, 42)
 
-def evaluate_agent(explorer_agent, attacker_agent, n_episodes):
-    env = nasim.make_multiagent_benchmark(SCENARIO_NAME, render_mode="human")
+
+def evaluate_agents(agent1, agent2, n_episodes):
+    env = NASimDAAEnv(scenario, flat_obs=True, max_exploit_steps=20)
 
     scores = []
     trajectory_steps =[]
 
-    for i in range(n_episodes):
-        terminated = False
-        truncated = False
-        explorer_obs, _ = env.reset()
-        score = 0
-        steps = 0
 
-        while not (terminated or truncated):
+    for episode in range(n_episodes):
+        obs = env.reset()
+        done = False
+        trajectory_score = 0
+        trajectory_step = 0
 
-            if env.current_agent == "Explorer":
-                action = explorer_agent.get_egreedy_action(explorer_obs)
-                print(f"Explorer action = {env.explorer_action_space.get_action(action).name}, action target = {env.explorer_action_space.get_action(action).target}")
+        while not done:
+
+            trajectory_step+=1
+
+            if not env.in_exploit_phase:
+                # --- Structuring Agent (Agent 1) ---
+                action = agent1.get_egreedy_action(obs)
+                next_obs, reward, done, info = env.step_agent1(action)
+                trajectory_score += reward
                 
-                if env.explorer_action_space.get_action(action).name != "attack_host":
-                    new_explorer_obs, reward, terminated, truncated, info = env.step(action)
-                    explorer_obs = new_explorer_obs
-                    score+=reward
+                obs = next_obs
 
-                else:
-                    attacker_obs, _, terminated, truncated, info = env.step(action)
+            else:
+                # --- Exploiting Agent (Agent 2) ---
+                total_exploit_reward = 0.0
 
-            elif env.current_agent == "Attacker":
-                action = attacker_agent.get_egreedy_action(attacker_obs)
-                print(f"Attacker action = {env.attacker_action_space.get_action(action).name}, action target = {env.attacker_action_space.get_action(action).target}")
-                
-                if env.attacker_action_space.get_action(action).name != "stop_attack":
-                    new_attacker_obs, reward, terminated, truncated, info = env.step(action)
-                    attacker_obs = new_attacker_obs
-                
-                else:
-                    new_explorer_obs, reward, terminated, truncated, info = env.step(action)
-                    explorer_obs = new_explorer_obs
-                    score+=reward
-            
-            steps+=1
+                while env.in_exploit_phase and not done:
+                    action = agent2.get_egreedy_action(obs)
+                    next_obs, reward, done, info = env.step_agent2(action)
+
+                    total_exploit_reward += reward
+                    obs = next_obs
+
+                    if info["phase"] == "structuring":
+                        break
     
-        scores.append(score)
-        trajectory_steps.append(steps)
+                trajectory_score += total_exploit_reward
+    
+    
+        scores.append(trajectory_score)
+        trajectory_steps.append(trajectory_step)
 
     return scores, trajectory_steps
+
+
 
 
 def make_plot(training_scores, is_eval=False):
@@ -73,68 +81,94 @@ def make_plot(training_scores, is_eval=False):
         plt.show()
 
 
+if __name__ == '__main__':
+    env = NASimDAAEnv(scenario, flat_obs=True, max_exploit_steps=150)
 
-if __name__ == "__main__":
-     
-    env = nasim.make_multiagent_benchmark(SCENARIO_NAME, render_mode="human")
+    terminal_obs = np.zeros(env.exploiting_observation_space.shape[0], dtype=np.float32)
 
-    explorer_obs, info = env.reset()
-    full_reward = 0
+    #agent1 = DoubleQAgent(observation_space_shape=env.structuring_observation_space.shape[0], 
+    #            action_space_n=env.structuring_action_space_size)
 
-    done = False
-    step_limit = False
-    #env.render()
+    #agent2 = DoubleQAgent(observation_space_shape=env.structuring_observation_space.shape[0], 
+    #            action_space_n=env.structuring_action_space_size)
+
+    agent1 = TabularQLearningAgent(observation_space_shape=env.structuring_observation_space.shape, 
+                action_space_n=env.structuring_action_space_size)
+        
+    agent2 = TabularQLearningAgent(observation_space_shape=env.exploiting_observation_space.shape, 
+                action_space_n=env.exploiting_action_space_size)
 
 
-    explorer_agent = TabularQLearningAgent(observation_space_shape=env.explorer_observation_space.shape, 
-                    action_space_n=env.explorer_action_space.n)
-    
-    attacker_agent = TabularQLearningAgent(observation_space_shape=env.attacker_observation_space.shape, 
-                    action_space_n=env.attacker_action_space.n)
+    # Буфер для отложенной награды
+    choose_host_step = None  # (obs, action)
 
-    _temp_action = None
-    attacker_obs = None
+    num_episodes = 1200
+    scores = []
 
-    while not (done or step_limit):
+    for episode in range(num_episodes):
+        obs = env.reset()
+        done = False
+        trajectory_score = 0
 
-        if env.current_agent == "Explorer":
-            action = explorer_agent.get_egreedy_action(explorer_obs)
-            print(f"Explorer action = {env.explorer_action_space.get_action(action).name}, action target = {env.explorer_action_space.get_action(action).target}")
-            
-            if env.explorer_action_space.get_action(action).name != "attack_host":
-                _temp_action = action
-                new_explorer_obs, reward, done, step_limit, info = env.step(action)
-                explorer_agent.learn(explorer_obs, action, reward, explorer_obs, done)
-                explorer_obs = new_explorer_obs
-                full_reward += reward
+        while not done:
+            if not env.in_exploit_phase:
+                # --- Structuring Agent (Agent 1) ---
+                action = agent1.choose_action(obs)
+                next_obs, reward, done, info = env.step_agent1(action)
+                trajectory_score += reward
+
+                if info["phase"] == "exploit":
+                    # Запоминаем шаг, чтобы позже обновить награду
+                    choose_host_step = (obs, action)
+                    obs = next_obs
+                else:
+                    agent1.learn(obs, action, reward, next_obs, done)
+                    obs = next_obs
 
             else:
-                attacker_obs, _, done, step_limit, info = env.step(action)
+                # --- Exploiting Agent (Agent 2) ---
+                total_exploit_reward = 0.0
 
-        elif env.current_agent == "Attacker":
-            action = attacker_agent.get_egreedy_action(attacker_obs)
-            print(f"Attacker action = {env.attacker_action_space.get_action(action).name}, action target = {env.attacker_action_space.get_action(action).target}")
-            
-            if env.attacker_action_space.get_action(action).name != "stop_attack":
-                new_attacker_obs, reward, done, step_limit, info = env.step(action)
-                attacker_agent.learn(attacker_obs, action, reward, new_attacker_obs, done)
-                attacker_obs = new_attacker_obs
-            
-            else:
-                new_explorer_obs, reward, done, step_limit, info = env.step(action)
-                explorer_agent.learn(explorer_obs, _temp_action, reward, new_explorer_obs, done)
-                explorer_obs = new_explorer_obs
-                full_reward += reward
+                while env.in_exploit_phase and not done:
+                    action = agent2.choose_action(obs)
+                    next_obs, reward, done, info = env.step_agent2(action)
 
-        #env.render()
+                    total_exploit_reward += reward
+
+                    if info["phase"] == "structuring":
+                        agent2.learn(obs, action, reward, terminal_obs, True)
+
+                    else:
+                        agent2.learn(obs, action, reward, next_obs, done)
+
+                    obs = next_obs
+
+                    if info["phase"] == "structuring":
+                        break
+                    
+
+                # --- Обновляем награду для Structuring Agent ---
+                if choose_host_step is not None:
+                    obs1, action1 = choose_host_step
+
+                    trajectory_score += total_exploit_reward
+                    agent1.learn(obs1, action1, total_exploit_reward, obs, done)
+                    choose_host_step = None
+        
+        scores.append(trajectory_score)
+        
+        if (episode + 1) % 10 == 0:
+            last_10 = scores[-10:]
+            avg_last_10 = fmean(last_10)
+            std_last_10 = stdev(last_10) if len(last_10) > 1 else 0.0
+            print(f"Episode {episode + 1}: "
+                  f"avg of last 10 = {avg_last_10:.2f} ± {std_last_10:.2f}")
 
 
-    print(f"Total reward: {full_reward}")
-
-    evaluating_scores, trajectory_steps = evaluate_agent(explorer_agent, attacker_agent, 200)
+    evaluating_scores, trajectory_steps = evaluate_agents(agent1, agent2, 200)
 
     make_plot(evaluating_scores, is_eval=True)
-
+    input()
     print("Среднее значение награды и среднее число шагов")
     print(fmean(evaluating_scores), fmean(trajectory_steps))
     print("стандартное отклонение награды и числа шагов")

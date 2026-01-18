@@ -1,7 +1,7 @@
 import gymnasium as gym
 from gymnasium.envs.registration import register
 
-from nasim.envs import NASimEnv, NASimGymTwoAgentsEnv
+from nasim.envs import NASimEnv
 from nasim.scenarios.benchmark import AVAIL_BENCHMARKS
 from nasim.scenarios import \
     make_benchmark_scenario, load_scenario, generate_scenario
@@ -52,44 +52,6 @@ def make_benchmark(scenario_name,
                   "render_mode": render_mode}
     scenario = make_benchmark_scenario(scenario_name, seed)
     return NASimEnv(scenario, **env_kwargs)
-
-
-def make_multiagent_benchmark(scenario_name,
-                   seed=None,
-                   render_mode=None) -> NASimGymTwoAgentsEnv:
-    """Make a new benchmark NASim environment.
-
-    Parameters
-    ----------
-    scenario_name : str
-        the name of the benchmark environment
-    seed : int, optional
-        random seed to use to generate environment (default=None)
-    fully_obs : bool, optional
-        the observability mode of environment, if True then uses fully
-        observable mode, otherwise partially observable (default=False)
-    flat_actions : bool, optional
-        if true then uses a flat action space, otherwise will use
-        parameterised action space (default=True).
-    flat_obs : bool, optional
-        if true then uses a 1D observation space. If False
-        will use a 2D observation space (default=True)
-    render_mode : str, optional
-            The render mode to use for the environment.
-
-    Returns
-    -------
-    NASimEnv
-        a new environment instance
-
-    Raises
-    ------
-    NotImplementederror
-        if scenario_name does no match any implemented benchmark scenarios.
-    """
-    env_kwargs = {"render_mode": render_mode}
-    scenario = make_benchmark_scenario(scenario_name, seed)
-    return NASimGymTwoAgentsEnv(scenario, **env_kwargs)
 
 
 def load(path,

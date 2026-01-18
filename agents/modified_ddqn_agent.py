@@ -11,13 +11,12 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # 1. Базовый класс Agent
 class Agent:
     def __init__(self, gamma=0.99, epsilon=1.0, batch_size=128, lr=0.001,
-                 epsilon_dec=0.996, epsilon_end=0.01, mem_size=1000000, is_learning=True):
+                 epsilon_dec=0.996, epsilon_end=0.01, mem_size=1000000):
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_dec = epsilon_dec
         self.epsilon_min = epsilon_end
         self.batch_size = batch_size
-        self.is_learning = is_learning
         self.memory = PrioritizedReplayBuffer(mem_size)
 
     def save(self, state, action, reward, new_state, done):
@@ -92,14 +91,16 @@ class QNN(nn.Module):
 class DoubleQAgent(Agent):
     def __init__(self, observation_space_shape, action_space_n, gamma=0.99, epsilon=1.0, 
                  batch_size=128, lr=0.0003, epsilon_dec=0.996, epsilon_end=0.01,
-                 mem_size=1000000, tau=0.001, is_learning=True):
+                 mem_size=1000000, tau=0.001):
         
         super().__init__(gamma=gamma, epsilon=epsilon, batch_size=batch_size,
              lr=lr, epsilon_dec=epsilon_dec, epsilon_end=epsilon_end,
-             mem_size=mem_size, is_learning=is_learning)
+             mem_size=mem_size)
 
         self.action_space_n = action_space_n
         self.tau = tau
+        
+        self.is_learning = True
 
         self.q_func = QNN(observation_space_shape, action_space_n, 42).to(device)
         self.q_func_target = QNN(observation_space_shape, action_space_n, 42).to(device)

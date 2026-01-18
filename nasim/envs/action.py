@@ -76,75 +76,6 @@ def load_action_list(scenario):
     return action_list
 
 
-def load_explorer_action_list(scenario):
-    """Load list of explorer actions for environment for given scenario
-
-    Parameters
-    ----------
-    scenario : Scenario
-        the scenario
-
-    Returns
-    -------
-    list
-        list of all explorer actions in environment
-    """   
-    action_list = []
-    for address in scenario.address_space:
-        action_list.append(
-            ServiceScan(address, scenario.service_scan_cost)
-        )
-        action_list.append(
-            OSScan(address, scenario.os_scan_cost)
-        )
-        action_list.append(
-            SubnetScan(address, scenario.subnet_scan_cost)
-        )
-        action_list.append(
-            AttackHost(address)
-        )
-    return action_list
-
-
-def load_attacker_action_list(scenario, address):
-    """Load list of attacker actions for environment for given scenario
-
-    Parameters
-    ----------
-    scenario : Scenario
-        the scenario
-
-    Returns
-    -------
-    list
-        list of all attacker actions in environment
-    """   
-    action_list = []
-
-    action_list.append(
-            OSScan(address, scenario.os_scan_cost)
-        )
-    action_list.append(
-            ServiceScan(address, scenario.service_scan_cost)
-        )
-    action_list.append(
-            ProcessScan(address, scenario.process_scan_cost)
-        )
-
-    for e_name, e_def in scenario.exploits.items():
-        exploit = Exploit(e_name, address, **e_def)
-        action_list.append(exploit)
-
-    for pe_name, pe_def in scenario.privescs.items():
-        privesc = PrivilegeEscalation(pe_name, address, **pe_def)
-        action_list.append(privesc)
-
-    action_list.append(
-        StopAttack(address)
-    )
-    return action_list
-
-
 class Action:
     """The base abstract action class in the environment
 
@@ -289,25 +220,25 @@ class Action:
         """
         return isinstance(self, ProcessScan)
     
-    def is_host_attack(self):
-        """Check if action is a host attack
+    def is_start_exploit(self):
+        """Check if action is a start exploit
 
         Returns
         -------
         bool
-            True if action is a host attack, otherwise False
+            True if action is a start exploit, otherwise False
         """
-        return isinstance(self, AttackHost)
+        return isinstance(self, StartExploitAction)
     
-    def is_stop_attack(self):
-        """Check if action is a stop attack
+    def is_stop_exploit(self):
+        """Check if action is a stop exploit
 
         Returns
         -------
         bool
-            True if action is a stop attack, otherwise False
+            True if action is a stop exploit, otherwise False
         """
-        return isinstance(self, StopAttack)
+        return isinstance(self, StopExploitAction)
 
     def is_noop(self):
         """Check if action is a do nothing action.
@@ -613,71 +544,6 @@ class ProcessScan(Action):
                          **kwargs)
 
 
-class AttackHost(Action):
-    """An Attack Host action in the environment
-
-    Inherits from the base Action Class.
-    """
-
-    def __init__(self,
-                 target,
-                 cost=0.0,
-                 prob=1.0,
-                 req_access=AccessLevel.USER,
-                 **kwargs):
-        """
-        Parameters
-        ---------
-        target : (int, int)
-            address of target
-        cost : float
-            cost of performing action
-        prob : float, optional
-            probability of success for a given action (default=1.0)
-        req_access : AccessLevel, optional
-            the required access level to perform action
-            (default=AccessLevel.USER)
-        """
-        super().__init__("attack_host",
-                         target=target,
-                         cost=cost,
-                         prob=prob,
-                         req_access=req_access,
-                         **kwargs)
-
-
-class StopAttack(Action):
-    """Attacker agent action, that stops current attack
-
-    Inherits from the base Action Class.
-    """
-    def __init__(self, 
-                 target, 
-                 cost=0.0, 
-                 prob=1.0, 
-                 req_access=AccessLevel.USER, 
-                 **kwargs):
-        """
-        Parameters
-        ---------
-        target : (int, int)
-            address of target
-        cost : float
-            cost of performing action
-        prob : float, optional
-            probability of success for a given action (default=1.0)
-        req_access : AccessLevel, optional
-            the required access level to perform action
-            (default=AccessLevel.USER)
-        """
-        super().__init__("stop_attack", 
-                         target=target, 
-                         cost=cost, 
-                         prob=prob, 
-                         req_access=req_access, 
-                         **kwargs)
-    pass
-
 class NoOp(Action):
     """A do nothing action in the environment
 
@@ -690,6 +556,58 @@ class NoOp(Action):
                          cost=0,
                          prob=1.0,
                          req_access=AccessLevel.NONE)
+
+
+class StartExploitAction(Action):
+    """Action indicating Structuring Agent wants to begin attacking a host.
+    This action does not modify the environment directly.
+    Instead, it signals that control should be passed to the Exploiting Agent
+    for the specified host.
+    """
+    def __init__(self, target, cost=0.0):
+        """
+        Parameters
+        ----------
+        target : (int, int)
+            address of the host to begin exploiting
+        cost : float, optional
+            cost of initiating the exploit phase (default=0.0)
+        """
+        super().__init__(
+            name=f"start_exploit",
+            target=target,
+            cost=cost,
+            prob=1.0,
+            req_access=AccessLevel.USER  # minimal requirement; actual access checked later
+        )
+
+    def __str__(self):
+        return f"StartExploitAction: target={self.target}, cost={self.cost}"
+
+
+class StopExploitAction(Action):
+    """Action indicating Exploiting Agent wants to stop attacking the current host
+    and return control to the Structuring Agent.
+    """
+    def __init__(self, cost=0.0):
+        """
+        Parameters
+        ----------
+        cost : float, optional
+            cost of stopping the exploit phase (default=0.0)
+        """
+        # a dummy target — it's not used
+        dummy_target = (1, 0)
+        super().__init__(
+            name="stop_exploit",
+            target=dummy_target,
+            cost=cost,
+            prob=1.0,
+            req_access=AccessLevel.NONE
+        )
+
+    def __str__(self):
+        return f"StopExploitAction: cost={self.cost}"
 
 
 class ActionResult:
@@ -853,95 +771,60 @@ class FlatActionSpace(spaces.Discrete):
             ("When using flat action space, action must be an integer"
              f" or an Action object: {action_idx} is invalid")
         return self.actions[action_idx]
-    
 
-class ExplorerActionSpace(spaces.Discrete):
-    """Flat Action space for Explorer agent for multiagent NASim environment.
 
-    Inherits and implements the gym.spaces.Discrete action space
-
-    ...
-
-    Attributes
-    ----------
-    n : int
-        the number of actions in the action space
-    actions : list of Actions
-        the list of the Actions in the action space
+class StructuringActionSpace(spaces.Discrete):
+    """Action space for the Structuring Agent (Agent 1).
+    Contains:
+      - All scan actions (service, os, subnet, process)
+      - StartExploitAction for every host in the network
     """
-
     def __init__(self, scenario):
-        """
-        Parameters
-        ---------
-        scenario : Scenario
-            scenario description
-        """
-        self.actions = load_explorer_action_list(scenario)
+        self.actions = []
+
+        for address in scenario.address_space:
+            self.actions.append(ServiceScan(address, scenario.service_scan_cost))
+            self.actions.append(OSScan(address, scenario.os_scan_cost))
+            self.actions.append(SubnetScan(address, scenario.subnet_scan_cost))
+            self.actions.append(ProcessScan(address, scenario.process_scan_cost))
+            self.actions.append(StartExploitAction(address, cost=0.0))
         super().__init__(len(self.actions))
 
     def get_action(self, action_idx):
-        """Get Action object corresponding to action idx
-
-        Parameters
-        ----------
-        action_idx : int
-            the action idx
-
-        Returns
-        -------
-        Action
-            Corresponding Action object
-        """
-        assert isinstance(action_idx, int), \
-            ("When using flat action space, action must be an integer"
-             f" or an Action object: {action_idx} is invalid")
+        assert isinstance(action_idx, int), "Action index must be int"
+        assert 0 <= action_idx < self.n, f"Invalid action index: {action_idx}"
         return self.actions[action_idx]
-    
 
-class AttackerActionSpace(spaces.Discrete):
-    """Flat Action space for Attacker agent for multiagent NASim environment.
 
-    Inherits and implements the gym.spaces.Discrete action space
-
-    ...
-
-    Attributes
-    ----------
-    n : int
-        the number of actions in the action space
-    actions : list of Actions
-        the list of the Actions in the action space
+class ExploitingActionSpace(spaces.Discrete):
+    """Action space for the Exploiting Agent (Agent 2).
+    Contains:
+      - Host-level scans (service, os, process) for target_host
+      - All exploits and privesc that target the target_host
+      - StopExploitAction
     """
+    def __init__(self, scenario, target_host):
+        self.target_host = target_host
+        self.actions = []
 
-    def __init__(self, scenario, address):
-        """
-        Parameters
-        ---------
-        scenario : Scenario
-            scenario description
-        address : Tuple
-            subnet and host number pair
-        """
-        self.actions = load_attacker_action_list(scenario, address)
+        self.actions.append(ServiceScan(target_host, scenario.service_scan_cost))
+        self.actions.append(OSScan(target_host, scenario.os_scan_cost))
+        self.actions.append(ProcessScan(target_host, scenario.process_scan_cost))
+
+        for e_name, e_def in scenario.exploits.items():
+            exploit = Exploit(e_name, target_host, **e_def)
+            self.actions.append(exploit)
+
+        for pe_name, pe_def in scenario.privescs.items():
+            privesc = PrivilegeEscalation(pe_name, target_host, **pe_def)
+            self.actions.append(privesc)
+
+        self.actions.append(StopExploitAction(cost=0.0))
         super().__init__(len(self.actions))
 
-    def get_action(self, action_idx):
-        """Get Action object corresponding to action idx
-
-        Parameters
-        ----------
-        action_idx : int
-            the action idx
-
-        Returns
-        -------
-        Action
-            Corresponding Action object
-        """
-        assert isinstance(action_idx, int), \
-            ("When using flat action space, action must be an integer"
-             f" or an Action object: {action_idx} is invalid")
+    def get_action(self, action_idx) -> Action:
+        assert isinstance(action_idx, int), "Action index must be int"
+        assert 0 <= action_idx < self.n, f"Invalid action index: {action_idx}"
         return self.actions[action_idx]
 
 

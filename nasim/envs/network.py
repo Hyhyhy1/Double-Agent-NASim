@@ -1,6 +1,6 @@
 import numpy as np
 
-from nasim.envs.action import ActionResult, Action
+from nasim.envs.action import ActionResult
 from nasim.envs.utils import get_minimal_hops_to_goal, min_subnet_depth, AccessLevel
 
 # column in topology adjacency matrix that represents connection between
@@ -27,16 +27,13 @@ class Network:
         next_state = state.copy()
         for host_addr in self.address_space:
             host = next_state.get_host(host_addr)
-            if host is None:
-                continue
-
             host.compromised = False
             host.access = AccessLevel.NONE
             host.reachable = self.subnet_public(host_addr[0])
             host.discovered = host.reachable
         return next_state
 
-    def perform_action(self, state, action : Action, current_agent=None):
+    def perform_action(self, state, action):
         """Perform the given Action against the network.
 
         Arguments
@@ -56,19 +53,19 @@ class Network:
         tgt_subnet, tgt_id = action.target
         assert 0 < tgt_subnet < len(self.subnets)
         assert tgt_id <= self.subnets[tgt_subnet]
-        
+
         next_state = state.copy()
 
-        if action.is_noop(): #Do nothing
+        if action.is_noop():
             return next_state, ActionResult(True)
 
         if not state.host_reachable(action.target) \
-           or not state.host_discovered(action.target): #Target unreachable
+           or not state.host_discovered(action.target):
             result = ActionResult(False, 0.0, connection_error=True)
             return next_state, result
 
         has_req_permission = self.has_required_remote_permission(state, action)
-        if action.is_remote() and not has_req_permission: #No rights to preform action
+        if action.is_remote() and not has_req_permission:
             result = ActionResult(False, 0.0, permission_error=True)
             return next_state, result
 

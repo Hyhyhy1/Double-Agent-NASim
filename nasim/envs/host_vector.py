@@ -106,7 +106,8 @@ class HostVector:
             vector[cls._get_os_idx(os_num)] = int(os_val)
         for srv_num, (srv_key, srv_val) in enumerate(host.services.items()):
             vector[cls._get_service_idx(srv_num)] = int(srv_val)
-        for proc_num, (proc_key, proc_val) in enumerate(host.processes.items()):
+        host_procs = host.processes.items()
+        for proc_num, (proc_key, proc_val) in enumerate(host_procs):
             vector[cls._get_process_idx(proc_num)] = int(proc_val)
         return cls(vector)
 
@@ -451,3 +452,47 @@ class HostVector:
         if not isinstance(other, HostVector):
             return False
         return np.array_equal(self.vector, other.vector)
+
+
+def get_structuring_host_vector(host_vector: HostVector):
+
+    subnet_slice = host_vector._subnet_address_idx_slice()
+    host_slice = host_vector._host_address_idx_slice()
+    
+    aux_features = np.array([
+        host_vector.compromised,
+        host_vector.reachable,
+        host_vector.discovered,
+        host_vector.value,
+        host_vector.discovery_value,
+        host_vector.access
+    ], dtype=np.float32)
+    
+    struct_vec = np.concatenate([
+        host_vector.vector[subnet_slice],
+        host_vector.vector[host_slice],
+        aux_features
+    ])
+    return struct_vec
+
+
+def get_exploiting_host_vector(host_vector: HostVector):
+
+    aux_features = np.array([
+        host_vector.compromised,
+        host_vector.reachable,
+        host_vector.discovered,
+        host_vector.access
+    ], dtype=np.float32)
+    
+    os_slice = host_vector._os_idx_slice()
+    srv_slice = host_vector._service_idx_slice()
+    proc_slice = host_vector._process_idx_slice()
+    
+    exploit_vec = np.concatenate([
+        aux_features,
+        host_vector.vector[os_slice],
+        host_vector.vector[srv_slice],
+        host_vector.vector[proc_slice]
+    ])
+    return exploit_vec

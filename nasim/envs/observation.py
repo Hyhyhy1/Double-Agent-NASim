@@ -1,9 +1,7 @@
 import numpy as np
 
 from nasim.envs.utils import AccessLevel
-from nasim.envs.host_vector import HostVector
-from nasim.envs.explorer_host_vector import ExplorerHostVector
-from nasim.envs.attacker_host_vector import AttackerHostVector
+from nasim.envs.host_vector import HostVector, get_exploiting_host_vector, get_structuring_host_vector
 
 
 class Observation:
@@ -224,3 +222,31 @@ class Observation:
 
     def __hash__(self):
         return hash(str(self.tensor))
+
+
+def get_structuring_observation(state):
+    """Generate observation for Structuring Agent (Agent 1).
+    
+    Returns
+    -------
+    np.ndarray
+        Shape: (num_hosts, structuring_host_size)
+    """
+    struct_obs = []
+    for host_addr in state.host_num_map:
+        host_vec = state.get_host(host_addr)
+        struct_vec = get_structuring_host_vector(host_vec)
+        struct_obs.append(struct_vec)
+    return np.stack(struct_obs)
+
+
+def get_exploiting_observation(state, target_host):
+    """Generate observation for Exploiting Agent (Agent 2) for a specific host.
+    
+    Returns
+    -------
+    np.ndarray
+        Shape: (exploiting_host_size,) — 1D vector
+    """
+    host_vec = state.get_host(target_host)
+    return get_exploiting_host_vector(host_vec)
